@@ -103,3 +103,52 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `ollama-aim` default model is `gemma2:2b` (CPU-safe). Larger models (`mistral:7b`, `llama3:8b`) require GPU and are configured at deploy time via `OLLAMA_MODEL` env var.
 - `tortoise-tts` requires NVIDIA GPU with 8+ GB free VRAM.
 - USDC costs are operator-configurable and can be set to zero for beta/hackathon use.
+
+
+---
+
+## [0.3.1-beta] — 2026-05-19
+
+### Changed
+
+**`EndpointCost` now includes the endpoint name.**
+Previously: `EndpointCost(currency, fixed, estimated_cost, min, max)` — the URI
+key from `uri_cost` (e.g. `/speak`, `/infer`) was parsed and then discarded.
+Now: `EndpointCost(endpoint, currency, fixed, ...)` — the endpoint name is
+preserved and stored, making it possible to match costs back to specific endpoints.
+
+**`AIMInfo` now includes an `endpoints` list.**
+Previously: `AIMInfo` had a `costs` list but no record of which endpoints the AIM
+exposed — callers had to know endpoint names out-of-band or read the docs.
+Now: `AIMInfo.endpoints` is a `List[str]` of all endpoint URIs declared in the
+`uri_cost` block of `/info` (e.g. `["/speak", "/list-voices"]`). Empty if the AIM
+uses `manifest.json` costs instead, in which case fetch `/aim/<slot>/manifest.json`.
+
+**`health()` now distinguishes 404 from other failures.**
+Previously: any failed health check returned a generic failure result — callers
+could not tell whether the AIM was down or simply had no `/health` endpoint.
+Now: a 404 from `/health` returns `status=404` with an explicit message:
+`"AIM at slot N has no /health endpoint — probe the active endpoint directly."`
+Callers can branch on `result.status == 404` to fall through gracefully.
+
+**Tortoise TTS example: health-first with active-endpoint fallback.**
+Previously: `waitForReady()` polled `/health` unconditionally. Because
+`tortoise-tts` has no `/health` endpoint, every poll returned a connection error,
+the loop never exited early, and the full 5-minute timeout elapsed before failing.
+Now: the example attempts `/health` first. On 404 it immediately falls through to
+`speak_with_retry()`, which probes `/speak` directly with 20-second backoff. A
+successful `/speak` response is the definitive signal the model is loaded. 400
+responses (bad voice name, text too long) exit immediately without retrying.
+
+**Tortoise TTS example: endpoint reporting from /info.**
+Previously: discovery printed slot number only.
+Now: `report_aim()` prints all endpoints declared in `uri_cost`, their per-currency
+costs (or "free" if fixed=0), and GPU label requirements — giving the developer
+a full picture of the AIM before any inference call is made.
+
+### Notes
+- The absence of a `/health` endpoint on `tortoise-tts` is a known AIM-side gap.
+  The correct fix is for the AIM to expose `GET /health` returning
+  `{"model_ready": false}` during model load and `{"model_ready": true}` once
+  ready. Until that is shipped, the active-endpoint fallback pattern handles it.
+- TypeScript, Swift, and Kotlin examples will be updated to match in the next pass.
