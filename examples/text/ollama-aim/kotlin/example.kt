@@ -1,5 +1,5 @@
 // examples/text/ollama-aim/kotlin/example.kt
-// HyperCycle SDK v0.2.1-beta — Ollama LLM AIM (Kotlin/Android)
+// HyperCycle SDK v0.3.1-beta — Ollama LLM AIM (Kotlin/Android)
 //
 // AIM image: ollama-aim     Endpoint: POST /aim/<slot>/request
 // Warmup: ~4 min after "running" — model downloads after container starts.

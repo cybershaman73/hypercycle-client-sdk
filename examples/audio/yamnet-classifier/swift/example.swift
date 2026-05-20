@@ -1,5 +1,5 @@
 // examples/audio/yamnet-classifier/swift/example.swift
-// HyperCycle SDK v0.2.1-beta — YAMNet Acoustic Classifier (Swift/iOS)
+// HyperCycle SDK v0.3.1-beta — YAMNet Acoustic Classifier (Swift/iOS)
 // See python/example.py in this folder for full waveform documentation.
 // Set HYPERCYCLE_NODE_URL in your scheme environment variables.
 

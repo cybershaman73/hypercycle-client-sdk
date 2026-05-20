@@ -1,6 +1,6 @@
 # HyperCycle Client SDK
 
-**Version:** 0.2.0-beta  
+**Version:** 0.3.1-beta  
 **Target audience:** Frontend app developers — iOS, Android, and desktop  
 **Goal:** Connect your app to any AIM deployed on a HyperCycle node
 

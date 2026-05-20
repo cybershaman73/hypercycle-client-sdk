@@ -1,5 +1,5 @@
 // HyperCycleClient.kt — HyperCycle AIM Client SDK (Kotlin/Android)
-// Version: 0.2.0-beta
+// Version: 0.3.1-beta
 //
 // Generic client for connecting to any public AIM on any HyperCycle node.
 // Designed for Android app developers building on HyperCycle.
@@ -33,7 +33,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-const val SDK_VERSION = "0.2.0-beta"
+const val SDK_VERSION = "0.3.1-beta"
 
 // ---------------------------------------------------------------------------
 // Result type

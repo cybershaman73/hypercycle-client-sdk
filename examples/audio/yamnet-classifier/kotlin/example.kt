@@ -1,5 +1,5 @@
 // examples/audio/yamnet-classifier/kotlin/example.kt
-// HyperCycle SDK v0.2.1-beta — YAMNet Acoustic Classifier (Kotlin/Android)
+// HyperCycle SDK v0.3.1-beta — YAMNet Acoustic Classifier (Kotlin/Android)
 // See python/example.py in this folder for full waveform documentation.
 // Set HYPERCYCLE_NODE_URL environment variable before running.
 

@@ -1,6 +1,6 @@
 """
 hypercycle_client.py — HyperCycle AIM Client SDK (Python)
-Version: 0.2.0-beta
+Version: 0.3.1-beta
 
 Generic client for connecting to any public AIM on any HyperCycle node.
 Designed for frontend app developers building on top of the HyperCycle
@@ -45,7 +45,7 @@ from typing import Any, Dict, Generic, List, Optional, TypeVar
 import urllib.request
 import urllib.error
 
-SDK_VERSION = "0.2.0-beta"
+SDK_VERSION = "0.3.1-beta"
 
 T = TypeVar("T")
 
@@ -87,12 +87,16 @@ class HyperCycleResult(Generic[T]):
 @dataclass
 class EndpointCost:
     """
-    Cost declaration for a single AIM endpoint currency.
+    Cost declaration for a single AIM endpoint and currency.
 
-    Fields come from the uri_cost block inside /info or manifest.json.
+    Parsed from the uri_cost block in /info. Each key in uri_cost is an
+    endpoint name (e.g. "/speak", "/infer", "default"), and each value
+    is a dict of currency → cost data.
+
     When an AIM sets cost to zero (e.g. during open beta / hackathon),
     fixed will be 0 and estimated_cost will be 0.
     """
+    endpoint: str                          # URI key from uri_cost, e.g. "/speak"
     currency: str
     fixed: Optional[float] = None          # fixed cost per call (if declared)
     estimated_cost: Optional[float] = None # estimated cost range mid-point
@@ -110,7 +114,8 @@ class AIMInfo:
     Metadata for a discovered AIM, sourced from the node's /info endpoint.
 
     The /info endpoint is the primary discovery mechanism for running AIMs.
-    It contains identity, slot/port, status, labels, and cost declarations.
+    It contains identity, slot/port, status, labels, endpoint names, and
+    cost declarations.
 
     Attributes
     ----------
@@ -121,8 +126,10 @@ class AIMInfo:
     status       : Container status — only "running" AIMs are callable
     labels       : Docker labels declared by the AIM (GPU requirements, etc.)
     container_id : Short Docker container ID
-    costs        : Per-currency cost declarations from uri_cost (may be empty
-                   if the AIM uses manifest.json costs instead)
+    endpoints    : List of endpoint URIs declared in uri_cost
+                   e.g. ["/speak", "/list-voices"] or ["/infer"]
+                   Empty if the AIM uses manifest.json costs instead.
+    costs        : Per-endpoint, per-currency cost declarations from uri_cost
     """
     slot: int
     port: int
@@ -131,6 +138,7 @@ class AIMInfo:
     status: str
     labels: Dict[str, str]
     container_id: str
+    endpoints: List[str] = field(default_factory=list)
     costs: List[EndpointCost] = field(default_factory=list)
 
 
@@ -326,11 +334,23 @@ class HyperCycleClient:
         Returns a dict with at minimum {"status": "ok"}.
         Some AIMs include a "model_ready" boolean.
 
+        If the AIM has no /health endpoint, returns a failure with
+        status 404. Callers should treat 404 as "no health endpoint"
+        rather than "AIM is down" and fall through to probing the
+        active endpoint directly.
+
         Parameters
         ----------
         slot : AIM slot number (from discover() or info())
         """
-        return self._get(f"/aim/{slot}/health")
+        result = self._get(f"/aim/{slot}/health")
+        if not result.ok and result.status == 404:
+            return HyperCycleResult.failure(
+                f"AIM at slot {slot} has no /health endpoint — "
+                "probe the active endpoint directly to confirm readiness.",
+                status=404,
+            )
+        return result
 
     # -----------------------------------------------------------------------
     # Cost estimation
@@ -413,13 +433,15 @@ class HyperCycleClient:
     @staticmethod
     def _parse_aim(a: Dict) -> AIMInfo:
         """Parse a raw AIM dict from /info into an AIMInfo dataclass."""
-        uri_cost = a.get("uri_cost", {})
-        costs = []
-        for _endpoint, currencies in uri_cost.items():
-            for _currency, cost_data in currencies.items():
+        uri_cost  = a.get("uri_cost", {})
+        costs     = []
+        endpoints = list(uri_cost.keys())   # preserve all declared endpoint names
+        for endpoint_name, currencies in uri_cost.items():
+            for currency_key, cost_data in currencies.items():
                 if isinstance(cost_data, dict):
                     costs.append(EndpointCost(
-                        currency=cost_data.get("currency", _currency),
+                        endpoint=endpoint_name,
+                        currency=cost_data.get("currency", currency_key),
                         fixed=cost_data.get("fixed"),
                         estimated_cost=cost_data.get("estimated_cost"),
                         min=cost_data.get("min"),
@@ -433,6 +455,7 @@ class HyperCycleClient:
             status=a.get("status", "unknown"),
             labels=a.get("labels", {}),
             container_id=a.get("container_id", ""),
+            endpoints=endpoints,
             costs=costs,
         )
 

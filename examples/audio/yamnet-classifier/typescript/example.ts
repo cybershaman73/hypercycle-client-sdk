@@ -1,6 +1,6 @@
 /**
  * examples/audio/yamnet-classifier/typescript/example.ts
- * HyperCycle SDK v0.2.1-beta — YAMNet Acoustic Classifier (TypeScript)
+ * HyperCycle SDK v0.3.1-beta — YAMNet Acoustic Classifier (TypeScript)
  * See python/example.py in this folder for full waveform documentation.
  *
  * Usage: export HYPERCYCLE_NODE_URL=http://<node-ip>:8000

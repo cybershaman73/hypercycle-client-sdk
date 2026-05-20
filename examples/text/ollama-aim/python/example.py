@@ -1,6 +1,6 @@
 """
 examples/text/ollama-aim/python/example.py
-HyperCycle SDK v0.2.1-beta — Ollama LLM AIM (Python)
+HyperCycle SDK v0.3.1-beta — Ollama LLM AIM (Python)
 
 Use case: Text generation / chat via local LLM
 AIM image: ollama-aim

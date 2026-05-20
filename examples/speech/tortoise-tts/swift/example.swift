@@ -1,66 +1,65 @@
 // examples/speech/tortoise-tts/swift/example.swift
-// HyperCycle SDK v0.2.1-beta — Tortoise TTS AIM (Swift/iOS)
+// HyperCycle SDK v0.3.0-beta — Tortoise TTS AIM (Swift/iOS)
 //
-// AIM image: tortoise-tts
-// Endpoints: GET /list-voices, POST /speak
-// Warmup: ~4 min after "running" — model loads after container starts.
-// Hardware: NVIDIA GPU 8+ GB free VRAM required on the node.
+// NOTE: tortoise-tts has no /health endpoint.
+// Warmup detection works by retrying /speak directly until the model responds.
+// Model loads ~4 min after container enters "running" state.
 //
 // Input:  { "text": "...", "voice": "daniel" }  max 100 chars
-// Output: { "file": "<base64 WAV>" }
-//         → decode with Data(base64Encoded:) → play with AVAudioPlayer
-//
-// In a real iOS app, call ttsService.speak() from a Task in your ViewModel.
-// Play audio with AVAudioPlayer after decoding the base64 WAV.
+// Output: { "file": "<base64 WAV>" } → decode → AVAudioPlayer
 
 import Foundation
-import AVFoundation   // for audio playback in a real app
-
-// ---------------------------------------------------------------------------
-// TortoiseTTSService — wraps HyperCycleClient for tortoise-tts
-// ---------------------------------------------------------------------------
 
 class TortoiseTTSService {
 
     private static let imageName = "tortoise-tts"
-
     private let client: HyperCycleClient
 
     init(nodeURL: String? = nil) throws {
         self.client = try HyperCycleClient(nodeURL: nodeURL)
     }
 
-    // Poll until TTS model is loaded (~4 min after "running")
-    func waitForReady(slot: Int, maxWaitSec: Int = 300, pollSec: UInt64 = 15) async -> Bool {
-        print("Waiting for TTS model (up to \(maxWaitSec / 60)min)...")
+    /// Attempt /speak with retry backoff — handles warmup window.
+    /// tortoise-tts has no /health endpoint; retry is the only signal.
+    func speakWithRetry(
+        slot:          Int,
+        text:          String,
+        voice:         String,
+        maxWaitSec:    Int    = 360,
+        pollSec:       UInt64 = 20
+    ) async -> HyperCycleResult<[String: Any]> {
+        print("Attempting /speak (model warms ~4min, timeout \(maxWaitSec/60)min)...")
         var elapsed = 0
+        var attempt = 0
+        let body: [String: Any] = ["text": text, "voice": voice]
+
         while elapsed < maxWaitSec {
-            let health = await client.health(slot: slot)
-            if case .success(let data) = health {
-                let ready = data["model_ready"] as? Bool ?? false
-                print("  [\(elapsed)s] model_ready=\(ready)")
-                if ready { return true }
+            attempt += 1
+            let result = await client.execute(slot: slot, endpoint: "speak", body: body)
+
+            switch result {
+            case .success:
+                print("  [\(elapsed)s] Success on attempt \(attempt)")
+                return result
+            case .failure(let err):
+                // 400 = bad request — do not retry
+                if err.statusCode == 400 {
+                    print("  [\(elapsed)s] Bad request: \(err.message)")
+                    return result
+                }
+                print("  [\(elapsed)s] Not ready (\(err.statusCode ?? 0)) — retrying in \(pollSec)s")
+                try? await Task.sleep(nanoseconds: pollSec * 1_000_000_000)
+                elapsed += Int(pollSec)
             }
-            try? await Task.sleep(nanoseconds: pollSec * 1_000_000_000)
-            elapsed += Int(pollSec)
         }
-        return false
+
+        return .failure(HyperCycleError("Timed out waiting for TTS model after \(maxWaitSec)s"))
     }
 
-    // Fetch available voice names from /list-voices
-    func listVoices(slot: Int) async -> [String] {
-        let result = await client.execute(slot: slot, endpoint: "list-voices", body: [:])
-        if case .success(let data) = result {
-            return data["available_voices"] as? [String] ?? []
-        }
-        return []
-    }
-
-    // Full flow: discover → wait → list-voices → speak.
-    // Returns raw WAV Data on success.
+    /// Full flow: discover → speak with retry → return WAV data.
     func speak(text: String, voice: String = "daniel") async -> Result<Data, HyperCycleError> {
         guard text.count <= 100 else {
-            return .failure(HyperCycleError("Text exceeds 100 character limit (\(text.count) chars)"))
+            return .failure(HyperCycleError("Text exceeds 100 char limit (\(text.count) chars)"))
         }
 
         let discovery = await client.discover(imageName: Self.imageName)
@@ -68,14 +67,9 @@ class TortoiseTTSService {
             if case .failure(let err) = discovery { return .failure(err) }
             return .failure(HyperCycleError("Discovery failed"))
         }
+        print("Found '\(Self.imageName)' at slot \(aim.slot)\n")
 
-        guard await waitForReady(slot: aim.slot) else {
-            return .failure(HyperCycleError("TTS model not ready after timeout."))
-        }
-
-        let body: [String: Any] = ["text": text, "voice": voice]
-        let result = await client.execute(slot: aim.slot, endpoint: "speak", body: body)
-
+        let result = await speakWithRetry(slot: aim.slot, text: text, voice: voice)
         switch result {
         case .success(let data):
             guard let b64 = data["file"] as? String,
@@ -84,54 +78,37 @@ class TortoiseTTSService {
             }
             return .success(wavData)
         case .failure(let err):
-            let hint = err.statusCode == 400 ? " (invalid voice — use listVoices() to check)" : ""
-            return .failure(HyperCycleError(err.message + hint, statusCode: err.statusCode))
+            return .failure(err)
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Demo entry point
-// ---------------------------------------------------------------------------
-
 @main
 struct TortoiseTTSExample {
     static func main() async {
-        print("HyperCycle SDK \(HyperCycleClient.sdkVersion) — tortoise-tts example\n")
+        print("HyperCycle SDK \(HyperCycleClient.sdkVersion) — tortoise-tts\n")
 
         let service: TortoiseTTSService
         do {
             service = try TortoiseTTSService()
         } catch let err as HyperCycleError {
-            print("Config error: \(err.message)")
-            print("Set HYPERCYCLE_NODE_URL in your scheme environment variables.")
-            exit(1)
+            print("Config error: \(err.message)"); exit(1)
         } catch { print("Error: \(error)"); exit(1) }
 
         let text  = "You are now hearing this in my voice, courtesy of the HyperCycle network."
         let voice = "daniel"
-        print("Synthesizing: \"\(text)\"")
-        print("Voice: \(voice)")
-        print("Processing: 10s–1min depending on GPU...\n")
+        print("Text : \"\(text)\"")
+        print("Voice: \(voice)\n")
 
-        let result = await service.speak(text: text, voice: voice)
-        switch result {
+        switch await service.speak(text: text, voice: voice) {
         case .success(let wavData):
-            // In a real iOS app: play with AVAudioPlayer
-            // let player = try AVAudioPlayer(data: wavData)
-            // player.play()
-
-            // Save to temp file for CLI demo
+            // In a real iOS app: AVAudioPlayer(data: wavData)
             let outputURL = URL(fileURLWithPath: "output.wav")
-            do {
-                try wavData.write(to: outputURL)
-                print("Audio saved to output.wav (\(wavData.count.formatted()) bytes)")
-            } catch {
-                print("Could not write file: \(error)")
-            }
-
+            try? wavData.write(to: outputURL)
+            print("\nAudio saved: output.wav (\(wavData.count / 1024) KB)")
         case .failure(let err):
-            print("Error: \(err.message)")
+            print("\nFailed: \(err.message)")
+            print("Check: docker logs <container_id> --tail 50")
             exit(1)
         }
     }

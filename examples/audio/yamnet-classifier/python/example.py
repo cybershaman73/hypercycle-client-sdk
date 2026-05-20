@@ -1,6 +1,6 @@
 """
 examples/audio/yamnet-classifier/python/example.py
-HyperCycle SDK v0.2.1-beta — YAMNet Acoustic Classifier (Python)
+HyperCycle SDK v0.3.1-beta — YAMNet Acoustic Classifier (Python)
 
 Use case: Acoustic event classification
 AIM image: yamnet-classifier

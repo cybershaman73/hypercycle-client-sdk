@@ -1,24 +1,22 @@
 // examples/speech/tortoise-tts/kotlin/example.kt
-// HyperCycle SDK v0.2.1-beta — Tortoise TTS AIM (Kotlin/Android)
+// HyperCycle SDK v0.3.0-beta — Tortoise TTS AIM (Kotlin/Android)
 //
-// AIM image: tortoise-tts
-// Endpoints: GET /list-voices, POST /speak
-// Warmup: ~4 min after "running" — model loads after container starts.
-// Hardware: NVIDIA GPU 8+ GB free VRAM required on the node.
+// NOTE: tortoise-tts has no /health endpoint.
+// Warmup detection works by retrying /speak directly until the model responds.
+// Model loads ~4 min after container enters "running" state.
 //
-// Input:  JSONObject { "text": "...", "voice": "daniel" }  max 100 chars
-// Output: JSONObject { "file": "<base64 WAV>" }
-//         → decode with Base64.decode() → play with MediaPlayer or ExoPlayer
+// Input:  { "text": "...", "voice": "daniel" }  max 100 chars
+// Output: { "file": "<base64 WAV>" } → decode → MediaPlayer / ExoPlayer
 //
-// Android usage: call ttsService.speak() from viewModelScope.launch { }
-// JVM/CLI:       fun main() = runBlocking { runExample() }
+// Android: call ttsService.speak() from viewModelScope.launch { }
+// JVM/CLI: fun main() = runBlocking { runExample() }
 
 package ai.hypercycle.sdk.examples
 
 import ai.hypercycle.sdk.*
-import android.util.Base64         // Android — swap for java.util.Base64 on JVM
 import kotlinx.coroutines.*
 import org.json.JSONObject
+import java.util.Base64   // JVM — use android.util.Base64 on Android
 
 class TortoiseTTSService(nodeUrl: String? = null) {
 
@@ -26,37 +24,52 @@ class TortoiseTTSService(nodeUrl: String? = null) {
 
     private val client = HyperCycleClient(nodeUrl)
 
-    /** Poll until TTS model is loaded (~4 min after "running"). */
-    suspend fun waitForReady(slot: Int, maxWaitSec: Int = 300, pollSec: Long = 15): Boolean {
-        println("Waiting for TTS model (up to ${maxWaitSec / 60}min)...")
+    /**
+     * Attempt /speak with retry backoff — handles the ~4 min warmup window.
+     * tortoise-tts has no /health endpoint; a successful /speak is the only
+     * signal that the model is loaded and ready.
+     *
+     * Must be called from a coroutine (suspend function).
+     */
+    suspend fun speakWithRetry(
+        slot:         Int,
+        text:         String,
+        voice:        String,
+        maxWaitSec:   Int  = 360,
+        pollSec:      Long = 20,
+    ): HyperCycleResult<JSONObject> {
+        println("Attempting /speak (model warms ~4min, timeout ${maxWaitSec / 60}min)...")
         var elapsed = 0
-        while (elapsed < maxWaitSec) {
-            val health = client.health(slot)
-            if (health is HyperCycleResult.Success) {
-                val ready = health.data.optBoolean("model_ready", false)
-                println("  [${elapsed}s] model_ready=$ready")
-                if (ready) return true
-            }
-            delay(pollSec * 1000)
-            elapsed += pollSec.toInt()
-        }
-        return false
-    }
+        var attempt = 0
+        val body = JSONObject().put("text", text).put("voice", voice)
 
-    /** Fetch available voice names from /list-voices. */
-    suspend fun listVoices(slot: Int): List<String> {
-        val body   = JSONObject()
-        val result = client.execute(slot, "list-voices", body)
-        if (result is HyperCycleResult.Success) {
-            val arr = result.data.optJSONArray("available_voices") ?: return emptyList()
-            return (0 until arr.length()).map { arr.getString(it) }
+        while (elapsed < maxWaitSec) {
+            attempt++
+            val result = client.execute(slot, "speak", body)
+
+            when (result) {
+                is HyperCycleResult.Success -> {
+                    println("  [${elapsed}s] Success on attempt $attempt")
+                    return result
+                }
+                is HyperCycleResult.Failure -> {
+                    // 400 = bad request (voice/text) — do not retry
+                    if (result.statusCode == 400) {
+                        println("  [${elapsed}s] Bad request: ${result.error}")
+                        return result
+                    }
+                    println("  [${elapsed}s] Not ready (${result.statusCode ?: "no response"}) — retrying in ${pollSec}s")
+                    delay(pollSec * 1000)
+                    elapsed += pollSec.toInt()
+                }
+            }
         }
-        return emptyList()
+
+        return HyperCycleResult.Failure("Timed out waiting for TTS model after ${maxWaitSec}s")
     }
 
     /**
-     * Full flow: discover → wait → speak.
-     * Returns raw WAV bytes on success.
+     * Full flow: discover → speak with retry → return WAV bytes.
      * text must be ≤ 100 characters.
      */
     suspend fun speak(text: String, voice: String = "daniel"): HyperCycleResult<ByteArray> {
@@ -68,56 +81,45 @@ class TortoiseTTSService(nodeUrl: String? = null) {
             is HyperCycleResult.Success -> d.data
             is HyperCycleResult.Failure -> return HyperCycleResult.Failure(d.error, d.statusCode)
         }
+        println("Found '$IMAGE_NAME' at slot ${aim.slot}\n")
 
-        if (!waitForReady(aim.slot)) {
-            return HyperCycleResult.Failure("TTS model not ready after timeout.")
-        }
-
-        val body = JSONObject().put("text", text).put("voice", voice)
-        return when (val r = client.execute(aim.slot, "speak", body)) {
+        return when (val r = speakWithRetry(aim.slot, text, voice)) {
             is HyperCycleResult.Success -> {
                 val b64 = r.data.optString("file")
                 if (b64.isNullOrEmpty()) {
                     HyperCycleResult.Failure("No audio in response")
                 } else {
-                    // Android: Base64.decode(b64, Base64.DEFAULT)
-                    // JVM:     java.util.Base64.getDecoder().decode(b64)
-                    val wavBytes = Base64.decode(b64, Base64.DEFAULT)
-                    HyperCycleResult.Success(wavBytes, r.statusCode)
+                    // JVM: Base64.getDecoder().decode(b64)
+                    // Android: android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                    HyperCycleResult.Success(Base64.getDecoder().decode(b64), r.statusCode)
                 }
             }
-            is HyperCycleResult.Failure -> {
-                val hint = if (r.statusCode == 400) " (invalid voice — check listVoices())" else ""
-                HyperCycleResult.Failure(r.error + hint, r.statusCode)
-            }
+            is HyperCycleResult.Failure -> r
         }
     }
 }
 
 suspend fun runTTSExample() {
-    println("HyperCycle SDK ${HyperCycleClient.SDK_VERSION} — tortoise-tts example\n")
+    println("HyperCycle SDK ${HyperCycleClient.SDK_VERSION} — tortoise-tts\n")
 
     val service = TortoiseTTSService()
     val text    = "You are now hearing this in my voice, courtesy of the HyperCycle network."
     val voice   = "daniel"
 
-    println("Synthesizing: \"$text\"")
-    println("Voice: $voice  |  Processing: 10s–1min...\n")
+    println("Text : \"$text\"")
+    println("Voice: $voice\n")
 
     when (val result = service.speak(text, voice)) {
         is HyperCycleResult.Success -> {
             val wavBytes = result.data
-            // Android: write to cache file, play with MediaPlayer
-            // val file = File(context.cacheDir, "output.wav")
-            // file.writeBytes(wavBytes)
-            // val player = MediaPlayer().apply { setDataSource(file.absolutePath); prepare(); start() }
-
+            // Android: write to cache, play with MediaPlayer
             // JVM/CLI: write to disk
             java.io.File("output.wav").writeBytes(wavBytes)
-            println("Audio saved to output.wav (${wavBytes.size} bytes)")
+            println("\nAudio saved: output.wav (${wavBytes.size / 1024} KB)")
         }
         is HyperCycleResult.Failure -> {
-            println("Error: ${result.error}")
+            println("\nFailed: ${result.error}")
+            println("Check: docker logs <container_id> --tail 50")
         }
     }
 }

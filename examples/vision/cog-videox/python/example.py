@@ -1,6 +1,6 @@
 """
 examples/vision/cog-videox/python/example.py
-HyperCycle SDK v0.2.1-beta — CogVideoX Text-to-Video AIM (Python)
+HyperCycle SDK v0.3.1-beta — CogVideoX Text-to-Video AIM (Python)
 
 ⚠️  STATUS: AIM IN ACTIVE DEVELOPMENT
     This AIM is not yet available on CBNO nodes.

@@ -1,6 +1,6 @@
 /**
  * hypercycle-client.ts — HyperCycle AIM Client SDK (TypeScript)
- * Version: 0.2.0-beta
+ * Version: 0.3.1-beta
  *
  * Generic client for connecting to any public AIM on any HyperCycle node.
  * Designed for frontend app developers building on top of the HyperCycle
@@ -18,7 +18,7 @@
  *   const result = await client.execute(aim.slot, "infer", body);
  */
 
-export const SDK_VERSION = "0.2.0-beta";
+export const SDK_VERSION = "0.3.1-beta";
 
 // ---------------------------------------------------------------------------
 // Result type

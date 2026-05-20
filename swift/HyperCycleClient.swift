@@ -1,5 +1,5 @@
 // HyperCycleClient.swift — HyperCycle AIM Client SDK (Swift/iOS)
-// Version: 0.2.0-beta
+// Version: 0.3.1-beta
 //
 // Generic client for connecting to any public AIM on any HyperCycle node.
 // Designed for iOS (and macOS) app developers building on HyperCycle.
@@ -22,7 +22,7 @@ import Foundation
 // Version
 // ---------------------------------------------------------------------------
 
-public let SDK_VERSION = "0.2.0-beta"
+public let SDK_VERSION = "0.3.1-beta"
 
 // ---------------------------------------------------------------------------
 // Result type
