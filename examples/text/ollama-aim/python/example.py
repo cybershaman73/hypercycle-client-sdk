@@ -32,25 +32,35 @@ IMAGE_NAME = "ollama-aim"
 
 def wait_for_ready(client, slot, max_wait_sec=300, poll_interval=15):
     """
-    Poll /health until the AIM is ready to serve inference.
+    Poll /health until the AIM reports ready for inference.
 
-    IMPORTANT: The ollama-aim downloads its model AFTER the container enters
-    'running' state. This takes ~4 minutes. During this window, /health returns
-    ok but inference requests will fail. This function waits it out.
+    Handles multiple health response shapes across different AIMs:
+      - Standard:   {"model_ready": true, "status": "ok"}
+      - ollama-aim: {"ollama_healthy": true, "status": "OK", "active_tokens": 0, ...}
 
-    Returns True when ready, False if max_wait_sec is exceeded.
+    Priority: model_ready → ollama_healthy → field absent (assume ready).
+    If no readiness field is present the AIM is considered ready — a 200
+    response with no explicit not-ready signal means the AIM is up.
+
+    Returns True when ready, False if max_wait_sec exceeded.
     """
     print(f"Waiting for model to be ready (up to {max_wait_sec//60}min)...")
     elapsed = 0
     while elapsed < max_wait_sec:
         health = client.health(slot)
         if health.ok:
-            model_ready = health.data.get("model_ready", False)
-            status      = health.data.get("status", "")
-            model_name  = health.data.get("model", "")
-            print(f"  [{elapsed:3d}s] status={status}  model_ready={model_ready}  model={model_name}")
-            if model_ready:
+            data = health.data
+            if "model_ready" in data:
+                ready = data["model_ready"]
+            elif "ollama_healthy" in data:
+                ready = data["ollama_healthy"]
+            else:
+                ready = True   # no readiness field = assume ready
+            print(f"  [{elapsed:3d}s] {data}")
+            if ready:
                 return True
+        else:
+            print(f"  [{elapsed:3d}s] health error: {health.error}")
         time.sleep(poll_interval)
         elapsed += poll_interval
     return False
