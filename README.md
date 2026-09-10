@@ -107,6 +107,12 @@ val client = HyperCycleClient()  // reads HYPERCYCLE_NODE_URL
 
 ## Configuring the node URL
 
+### Payments (Python)
+
+Wallet-signed paid calls are available through `python/hypercycle_pay.py`; see
+[`python/PAYMENTS.md`](python/PAYMENTS.md) for installation, protocol, testing,
+and key-handling guidance. The original dependency-free client is unchanged.
+
 **Never hardcode a node IP in your app.** Use an environment variable:
 
 ```bash
