@@ -1,5 +1,5 @@
 // examples/speech/tortoise-tts/swift/example.swift
-// HyperCycle SDK v0.3.0-beta — Tortoise TTS AIM (Swift/iOS)
+// HyperCycle SDK v0.3.1-beta — Tortoise TTS AIM (Swift/iOS)
 //
 // NOTE: tortoise-tts has no /health endpoint.
 // Warmup detection works by retrying /speak directly until the model responds.

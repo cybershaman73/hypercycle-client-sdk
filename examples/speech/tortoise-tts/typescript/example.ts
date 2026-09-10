@@ -1,6 +1,6 @@
 /**
  * examples/speech/tortoise-tts/typescript/example.ts
- * HyperCycle SDK v0.3.0-beta — Tortoise TTS AIM (TypeScript)
+ * HyperCycle SDK v0.3.1-beta — Tortoise TTS AIM (TypeScript)
  *
  * NOTE: tortoise-tts has no /health endpoint.
  * Warmup detection works by retrying /speak until the model responds.
@@ -10,7 +10,7 @@
  *        npx ts-node example.ts
  */
 
-import { HyperCycleClient } from "../../../../typescript/hypercycle-client";
+import { HyperCycleClient, type HyperCycleResult } from "../../../../typescript/hypercycle-client";
 import * as fs from "fs";
 
 const IMAGE_NAME    = "tortoise-tts";
@@ -32,6 +32,7 @@ async function speakWithRetry(
   console.log(`Attempting /speak (model warms ~4min, timeout ${maxWaitMs / 60000}min)...`);
   let elapsed = 0;
   let attempt = 0;
+  let lastFailure: HyperCycleResult<Record<string, unknown>> | undefined;
 
   while (elapsed < maxWaitMs) {
     attempt++;
@@ -48,13 +49,19 @@ async function speakWithRetry(
       return result;
     }
 
+    lastFailure = result;
     console.log(`  [${Math.round(elapsed / 1000)}s] Not ready (${result.status ?? "no response"}) — retrying in ${pollMs / 1000}s`);
     await new Promise(r => setTimeout(r, pollMs));
     elapsed += pollMs;
   }
 
   // Return last failure
-  return await client.execute(slot, "speak", body);
+  return lastFailure ?? {
+    ok: false,
+    data: null,
+    error: `Timed out waiting for TTS model after ${maxWaitMs / 1000}s`,
+    status: null,
+  };
 }
 
 async function main() {
@@ -77,6 +84,10 @@ async function main() {
 
   const text  = "You are now hearing this in my voice, courtesy of the HyperCycle network.";
   const voice = DEFAULT_VOICE;
+  if (text.length > 100) {
+    console.error(`Text exceeds 100 char limit (${text.length} chars)`);
+    process.exit(1);
+  }
   console.log(`Text : "${text}"`);
   console.log(`Voice: ${voice}\n`);
 

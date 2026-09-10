@@ -123,7 +123,10 @@ client = HyperCycleClient("http://192.168.1.10:8000")
 
 ## API reference
 
-All methods return a result wrapper — never throws or raises. Always check `.ok` before using `.data`.
+Except for constructors (which throw or raise when node configuration is missing),
+API methods return a result wrapper and do not throw or raise. `ping()` is the
+exception to the wrapper shape: it returns a boolean. Always check `.ok` before
+using `.data` from result-returning methods.
 
 | Method | Description |
 |---|---|
@@ -137,7 +140,8 @@ All methods return a result wrapper — never throws or raises. Always check `.o
 
 ### Result type
 
-Every method returns a result wrapper — never raises or throws.
+Except for constructors and `ping()`, every method returns a result wrapper and
+does not raise or throw.
 
 **Python:**
 ```python
@@ -257,8 +261,6 @@ hypercycle-sdk/
 │   │   └── YAMNetExample.swift
 │   └── kotlin/
 │       └── YAMNetExample.kt
-├── docs/
-│   └── info-endpoint-reference.md
 ├── README.md
 └── CHANGELOG.md
 ```

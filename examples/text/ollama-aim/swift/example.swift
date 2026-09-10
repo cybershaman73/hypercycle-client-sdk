@@ -25,7 +25,7 @@ class OllamaAIMService {
         self.client = try HyperCycleClient(nodeURL: nodeURL)
     }
 
-    // Poll /health until model_ready is true.
+    // Priority: model_ready → ollama_healthy → field absent (assume ready).
     // ollama-aim downloads its model AFTER entering "running" state (~4 min).
     func waitForReady(slot: Int, maxWaitSec: Int = 300, pollSec: UInt64 = 15) async -> Bool {
         print("Waiting for model (up to \(maxWaitSec / 60)min)...")
@@ -33,9 +33,16 @@ class OllamaAIMService {
         while elapsed < maxWaitSec {
             let health = await client.health(slot: slot)
             if case .success(let data) = health {
-                let ready     = data["model_ready"] as? Bool ?? false
+                let ready: Bool
+                if data.keys.contains("model_ready") {
+                    ready = data["model_ready"] as? Bool ?? false
+                } else if data.keys.contains("ollama_healthy") {
+                    ready = data["ollama_healthy"] as? Bool ?? false
+                } else {
+                    ready = true
+                }
                 let modelName = data["model"] as? String ?? ""
-                print("  [\(elapsed)s] model_ready=\(ready)  model=\(modelName)")
+                print("  [\(elapsed)s] ready=\(ready)  model=\(modelName)")
                 if ready { return true }
             }
             try? await Task.sleep(nanoseconds: pollSec * 1_000_000_000)
