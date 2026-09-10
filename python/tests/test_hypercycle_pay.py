@@ -21,7 +21,8 @@ PYTHON_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PYTHON_DIR))
 
 import hypercycle_pay
-from hypercycle_pay import PayingClient
+import smoke_paid_call
+from hypercycle_pay import DelegateSigner, PayingClient
 
 
 # Oracle ports of TransactionService.get_protocol2_message (0.5.4:651-679)
@@ -200,6 +201,7 @@ class StubHandler(BaseHTTPRequestHandler):
     nonce_calls = 0
     aim_calls = 0
     raw_nonce = "raw-nonce-one"
+    session_key = "stub-session-key"
     payment_driver = "basechain"
     accepting_currencies = ["USDC"]
     currencies = {
@@ -241,8 +243,12 @@ class StubHandler(BaseHTTPRequestHandler):
             cls.nonce_calls += 1
             nonce = hashlib.sha256(cls.raw_nonce.encode("utf-8")).hexdigest()
             return 200, {"nonce": nonce}, {}
+        if method == "GET" and parsed.path == "/create_session":
+            return 200, {"data": cls.session_key}, {}
         if method == "POST" and parsed.path == "/balance":
             return 200, {"verified": "true", "balance": {}}, {}
+        if method == "POST" and parsed.path == "/create_session":
+            return 200, {"status": "success", "message": "Session validated"}, {}
         if method == "POST" and parsed.path == "/aim/0/chat":
             if headers.get("cost_only"):
                 return 200, {"costs": []}, {}
@@ -580,6 +586,98 @@ def test_protocol2_execute_signs_full_request_path_with_query(
     assert verified["signature_valid"] is True
 
 
+def test_create_session_activation_is_signed_by_wallet(
+    stub_server, private_key
+):
+    delegate = Account.create()
+    client = PayingClient(stub_server, private_key=private_key)
+
+    result = client.create_session(delegate.address, duration=3600)
+
+    assert result.ok
+    assert result.data == StubHandler.session_key
+    creation = next(
+        item
+        for item in StubHandler.requests
+        if item["method"] == "GET"
+        and urllib.parse.urlsplit(item["path"]).path == "/create_session"
+    )
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(creation["path"]).query)
+    assert query == {"user_address": [client.sender], "duration": ["3600"]}
+
+    activation = next(
+        item
+        for item in StubHandler.requests
+        if item["method"] == "POST" and item["path"] == "/create_session"
+    )
+    payload = json.loads(activation["body"])
+    assert payload["signer_address"] == client.sender
+    assert payload["public_key"] == delegate.address
+    assert payload["session_key"] == StubHandler.session_key
+    recovered = Account.recover_message(
+        encode_defunct(text=f"{delegate.address}_{StubHandler.session_key}"),
+        signature=bytes.fromhex(payload["signature"]),
+    )
+    assert recovered.lower() == client.sender.lower()
+
+
+@pytest.mark.parametrize("duration", [0, -1, 86401])
+def test_create_session_rejects_duration_outside_bounds(
+    stub_server, private_key, duration
+):
+    client = PayingClient(stub_server, private_key=private_key)
+
+    result = client.create_session(Account.create().address, duration=duration)
+
+    assert not result.ok
+    assert "between 1 and 86400" in result.error
+    assert StubHandler.requests == []
+
+
+@pytest.mark.parametrize("protocol", [1, 2])
+def test_session_call_uses_wallet_sender_and_delegate_signature(
+    stub_server, private_key, protocol
+):
+    wallet = Account.from_key(private_key)
+    delegate = Account.create()
+    client = DelegateSigner(
+        stub_server,
+        session_key=StubHandler.session_key,
+        delegate_private_key=delegate.key,
+        wallet_address=wallet.address,
+        protocol=protocol,
+        driver="ethereum",
+        currency_type="HyPC",
+    )
+
+    result = client.execute_paid(0, "chat", {"prompt": "delegated"})
+
+    assert result.ok
+    request = next(
+        item
+        for item in StubHandler.requests
+        if item["path"] == "/aim/0/chat" and "tx-signature" in item["headers"]
+    )
+    assert request["headers"]["tx-sender"] == wallet.address
+    assert request["headers"]["tx-session-key"] == StubHandler.session_key
+    if protocol == 1:
+        signed_message = request["headers"]["tx-nonce"]
+    else:
+        signed_message, valid = oracle_protocol2_message(
+            "POST",
+            request["path"],
+            request["headers"],
+            request["body"],
+        )
+        assert valid
+    recovered = Account.recover_message(
+        encode_defunct(text=signed_message),
+        signature=bytes.fromhex(request["headers"]["tx-signature"]),
+    )
+    assert recovered.lower() == delegate.address.lower()
+    assert recovered.lower() != wallet.address.lower()
+
+
 def test_paid_result_accepts_underscore_response_headers():
     headers = Message()
     headers["value_used"] = json.dumps({"USDC": {"used": 3}})
@@ -609,3 +707,87 @@ def test_missing_key_has_clear_error(monkeypatch):
     monkeypatch.delenv("HYPERCYCLE_WALLET_KEY", raising=False)
     with pytest.raises(ValueError, match="private_key is required"):
         PayingClient("http://127.0.0.1:1")
+
+
+@pytest.mark.parametrize(
+    "mode,expected_aim_calls,expected_exit", [("--dry-run", 0, 0), ("--live", 1, 0)]
+)
+def test_smoke_configures_from_info_before_dry_run_or_live_call(
+    stub_server,
+    monkeypatch,
+    capsys,
+    private_key,
+    mode,
+    expected_aim_calls,
+    expected_exit,
+):
+    monkeypatch.setenv("HYPERCYCLE_NODE_URL", stub_server)
+    monkeypatch.setenv("HYPERCYCLE_WALLET_KEY", private_key)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke_paid_call.py",
+            mode,
+            "--slot",
+            "0",
+            "--endpoint",
+            "chat",
+            "--currency",
+            "USDC",
+            "--body-json",
+            '{"prompt":"hi"}',
+        ],
+    )
+
+    assert smoke_paid_call.main() == expected_exit
+    output = json.loads(capsys.readouterr().out)
+    if mode == "--dry-run":
+        assert output["headers"]["tx-driver"] == "basechain"
+        assert (
+            output["headers"]["currency-type"]
+            == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        )
+    else:
+        assert output["value_used"] == {"HyPC": {"used": 7}}
+    assert StubHandler.aim_calls == expected_aim_calls
+    assert StubHandler.requests[0]["path"] == "/info"
+
+
+@pytest.mark.parametrize("mode", ["--dry-run", "--session-delegate"])
+def test_smoke_preview_handles_missing_node_url(
+    monkeypatch, capsys, private_key, mode
+):
+    monkeypatch.delenv("HYPERCYCLE_NODE_URL", raising=False)
+    monkeypatch.setenv("HYPERCYCLE_WALLET_KEY", private_key)
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            urllib.error.URLError("stub unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "smoke_paid_call.py",
+            mode,
+            "--slot",
+            "0",
+            "--endpoint",
+            "chat",
+            "--body-json",
+            '{"prompt":"hi"}',
+        ],
+    )
+
+    assert smoke_paid_call.main() == 0
+    preview = json.loads(capsys.readouterr().out)
+    if mode == "--dry-run":
+        assert preview["path"] == "/aim/0/chat"
+        assert preview["headers"]["tx-driver"] == "<from /info>"
+        assert preview["headers"]["currency-type"] == "<from /info>"
+    else:
+        assert preview["mode"] == "session-delegate-dry-run"
+        assert preview["steps"][2]["headers"]["tx-session-key"]

@@ -1,7 +1,7 @@
 """Payment support for the HyperCycle Python client.
 
-This module implements wallet-signed request contracts verified by Node Manager
-0.5.4.
+This module implements the wallet- and session-signed request contracts
+verified by Node Manager 0.5.4.
 
 ``eth-account`` is optional for the base SDK and required only when creating a
 :class:`PayingClient`.
@@ -14,6 +14,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -85,6 +86,8 @@ class PayingClient(HyperCycleClient):
 
         self._private_key = key
         self.sender = account.address
+        self.signer_address = account.address
+        self._session_key: Optional[str] = None
         self.driver = driver
         self.currency_type = currency_type
         self.currency_symbol: Optional[str] = None
@@ -279,6 +282,72 @@ class PayingClient(HyperCycleClient):
         """Fetch the sender's current anti-replay nonce from ``GET /nonce``."""
         return self._request_json("GET", "/nonce", None, {"sender": self.sender})
 
+    def create_session(
+        self, delegate_address: str, duration: int = 21600
+    ) -> HyperCycleResult[str]:
+        """Create and wallet-activate a delegated signing session."""
+        if self._session_key is not None:
+            return HyperCycleResult.failure(
+                "A delegated signer cannot create another session"
+            )
+        if not isinstance(duration, int) or isinstance(duration, bool):
+            return HyperCycleResult.failure(
+                "duration must be an integer between 1 and 86400 seconds"
+            )
+        if duration <= 0 or duration > 86400:
+            return HyperCycleResult.failure(
+                "duration must be between 1 and 86400 seconds"
+            )
+        if not self._is_address(delegate_address):
+            return HyperCycleResult.failure(
+                "delegate_address must be a 20-byte hexadecimal EVM address"
+            )
+
+        query = urllib.parse.urlencode(
+            {"user_address": self.sender, "duration": duration}
+        )
+        created = self._request_json(
+            "GET", f"/create_session?{query}", None, {}
+        )
+        if not created.ok:
+            return HyperCycleResult.failure(
+                f"Failed to create session: {created.error}", created.status
+            )
+        session_key = (
+            created.data.get("data") if isinstance(created.data, dict) else None
+        )
+        if not isinstance(session_key, str) or not session_key:
+            return HyperCycleResult.failure(
+                "Session creation response did not contain a non-empty 'data' value",
+                created.status,
+            )
+
+        activation = {
+            "signer_address": self.sender,
+            "public_key": delegate_address,
+            "session_key": session_key,
+            "signature": self._sign_text(f"{delegate_address}_{session_key}"),
+        }
+        activation_bytes = json.dumps(activation).encode("utf-8")
+        activated = self._request_json(
+            "POST", "/create_session", activation_bytes, {}
+        )
+        if not activated.ok:
+            return HyperCycleResult.failure(
+                f"Failed to activate session: {activated.error}", activated.status
+            )
+        message = (
+            activated.data.get("message")
+            if isinstance(activated.data, dict)
+            else None
+        )
+        if message != "Session validated":
+            return HyperCycleResult.failure(
+                "Session activation response did not confirm 'Session validated'",
+                activated.status,
+            )
+        return HyperCycleResult.success(session_key, status=activated.status or 200)
+
     def sign_nonce(self, nonce: str) -> str:
         """EIP-191-sign a protocol-1 nonce and return hex without ``0x``."""
         return self._sign_text(str(nonce))
@@ -410,6 +479,8 @@ class PayingClient(HyperCycleClient):
                 else ""
             ),
         }
+        if self._session_key is not None:
+            headers["tx-session-key"] = self._session_key
         return headers
 
     def _sign_text(self, message: str) -> str:
@@ -417,6 +488,12 @@ class PayingClient(HyperCycleClient):
             encode_defunct(text=message), private_key=self._private_key
         )
         return self._signature_hex(signed.signature)
+
+    @staticmethod
+    def _is_address(value: Any) -> bool:
+        return isinstance(value, str) and re.fullmatch(
+            r"0x[0-9a-fA-F]{40}", value
+        ) is not None
 
     @staticmethod
     def _signature_hex(signature: Any) -> str:
@@ -526,3 +603,37 @@ class PayingClient(HyperCycleClient):
             return json.loads(value)
         except (TypeError, json.JSONDecodeError):
             return default
+
+
+class DelegateSigner(PayingClient):
+    """Paid client that spends from a wallet and signs with a session delegate."""
+
+    def __init__(
+        self,
+        node_url: Optional[str] = None,
+        *,
+        session_key: str,
+        delegate_private_key: Union[str, bytes],
+        wallet_address: str,
+        timeout: int = 30,
+        driver: Optional[str] = None,
+        currency_type: Optional[str] = None,
+        protocol: int = 1,
+    ):
+        if not isinstance(session_key, str) or not session_key:
+            raise ValueError("session_key must be a non-empty string")
+        if not self._is_address(wallet_address):
+            raise ValueError(
+                "wallet_address must be a 20-byte hexadecimal EVM address"
+            )
+        super().__init__(
+            node_url=node_url,
+            private_key=delegate_private_key,
+            timeout=timeout,
+            driver=driver,
+            currency_type=currency_type,
+            protocol=protocol,
+        )
+        self.signer_address = self.sender
+        self.sender = wallet_address
+        self._session_key = session_key

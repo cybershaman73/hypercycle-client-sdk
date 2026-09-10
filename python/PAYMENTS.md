@@ -61,13 +61,48 @@ The deployed AIM handler passes the full request path and query string to the
 verifier. Accordingly, this SDK signs `/aim/<slot>/<endpoint>` plus the exact
 `?query` suffix when one is present.
 
-Session keys: see follow-up PR.
+## Delegated session keys
+
+Session keys let a short-lived delegate sign requests while the wallet remains
+the balance owner. Create and activate one with the wallet client:
+
+```python
+from eth_account import Account
+from hypercycle_pay import DelegateSigner, PayingClient
+
+wallet = PayingClient()
+delegate = Account.create()
+session = wallet.create_session(delegate.address, duration=21600)
+if not session.ok:
+    raise RuntimeError(session.error)
+
+client = DelegateSigner(
+    wallet.node_url,
+    session_key=session.data,
+    delegate_private_key=delegate.key,
+    wallet_address=wallet.sender,
+)
+configured = client.configure_from_node()
+if not configured.ok:
+    raise RuntimeError(configured.error)
+result = client.execute_paid(0, "chat", {"prompt": "hi"})
+```
+
+`create_session` performs `GET /create_session`, then wallet-signs
+`<delegate_address>_<session_key>` using EIP-191 and activates it with
+`POST /create_session`. Delegated paid calls keep `tx-sender` set to the wallet,
+add `tx-session-key`, and sign the nonce or protocol-2 message with the delegate
+key. Durations must be between 1 and 86400 seconds.
 
 ## Security and spend controls
 
 Keep `HYPERCYCLE_WALLET_KEY` out of source control, shell history, logs,
 OneDrive, screenshots, and support messages. Use a dedicated low-balance
 wallet, scoped to this purpose, rather than a treasury wallet.
+
+Protect delegate private keys as credentials, expire sessions promptly, and do
+not treat sessions as server-enforced spend caps. The referenced Node Manager
+validates expiry and delegate identity but does not apply a session spend limit.
 
 Node Manager 0.5.4 parses `tx-max-spend`, but the supplied server source does
 not enforce it during deduction. Treat it as advisory; enforce real limits
@@ -76,10 +111,31 @@ through wallet balances and application policy.
 Never retry a failed paid call blindly: a timeout can occur after execution.
 Reconcile the returned nonce and accounting state before retrying.
 
-## Tests
+## Tests and smoke test
 
 Tests use only a loopback stub server and throwaway keys:
 
 ```bash
 python -m pytest python/tests -q
 ```
+
+Preview a request after read-only payment discovery from `GET /info`:
+
+```bash
+python python/smoke_paid_call.py --dry-run --slot 0 --endpoint chat \
+  --currency USDC --body-json '{"prompt":"hi"}'
+```
+
+If `/info` is unreachable, dry-run reports the reason and still prints the
+header plan with `<from /info>` placeholders. It makes no paid or mutating
+request.
+
+Preview the wallet activation and delegated-call flow without network calls:
+
+```bash
+python python/smoke_paid_call.py --session-delegate --slot 0 --endpoint chat \
+  --body-json '{"prompt":"hi"}'
+```
+
+Use `--live` only after confirming the node, currency, driver, deposit, and
+wallet boundary. It succeeds only for positive `value_used`.
