@@ -7,6 +7,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- `discover()` now prefers the first running AIM when duplicate image names are present.
+
+### Fixed
+- TypeScript, Swift, and Kotlin now preserve endpoint names and endpoint lists parsed from `uri_cost`, matching Python.
+- TypeScript, Swift, and Kotlin `health()` calls now return Python's explicit no-`/health` message for HTTP 404.
+
+---
+
 ## [0.2.0-beta] — 2026-05-13
 
 ### Added
