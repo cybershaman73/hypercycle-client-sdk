@@ -286,7 +286,10 @@ class HyperCycleClient:
             )
 
         aims = info_result.data.aims
-        match = next((a for a in aims if a.image_name == image_name), None)
+        matches = [a for a in aims if a.image_name == image_name]
+        match = next((a for a in matches if a.status == "running"), None)
+        if match is None and matches:
+            match = matches[0]
 
         if match is None:
             available = [a.image_name for a in aims]

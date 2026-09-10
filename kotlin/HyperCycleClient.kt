@@ -49,6 +49,7 @@ sealed class HyperCycleResult<out T> {
 // ---------------------------------------------------------------------------
 
 data class EndpointCost(
+    val endpoint:      String,
     val currency:      String,
     val fixed:         Double? = null,
     val estimatedCost: Double? = null,
@@ -74,6 +75,7 @@ data class AIMInfo(
     val status:      String,   // "running" = callable
     val labels:      Map<String, String>,
     val containerID: String,
+    val endpoints:   List<String>,
     val costs:       List<EndpointCost>,
 )
 
@@ -187,7 +189,8 @@ class HyperCycleClient(
             )
         }
         val aims = (infoResult as HyperCycleResult.Success).data.aims
-        val match = aims.find { it.imageName == imageName }
+        val matches = aims.filter { it.imageName == imageName }
+        val match = matches.find { it.status == "running" } ?: matches.firstOrNull()
             ?: run {
                 val available = aims.map { it.imageName }
                 return HyperCycleResult.Failure(
@@ -228,8 +231,17 @@ class HyperCycleClient(
      *
      * @param slot AIM slot number (from [discover] or [info])
      */
-    suspend fun health(slot: Int): HyperCycleResult<JSONObject> =
-        withContext(Dispatchers.IO) { get("/aim/$slot/health") }
+    suspend fun health(slot: Int): HyperCycleResult<JSONObject> = withContext(Dispatchers.IO) {
+        val result = get("/aim/$slot/health")
+        if (result is HyperCycleResult.Failure && result.statusCode == 404) {
+            HyperCycleResult.Failure(
+                "AIM at slot $slot has no /health endpoint — probe the active endpoint directly to confirm readiness.",
+                404,
+            )
+        } else {
+            result
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Cost estimation
@@ -295,12 +307,15 @@ class HyperCycleClient(
 
     private fun parseAIM(a: JSONObject): AIMInfo {
         val costs = mutableListOf<EndpointCost>()
+        val endpoints = mutableListOf<String>()
         a.optJSONObject("uri_cost")?.let { uriCost ->
             for (endpointKey in uriCost.keys()) {
+                endpoints.add(endpointKey)
                 uriCost.optJSONObject(endpointKey)?.let { currencies ->
                     for (currency in currencies.keys()) {
                         currencies.optJSONObject(currency)?.let { cd ->
                             costs.add(EndpointCost(
+                                endpoint      = endpointKey,
                                 currency      = cd.optString("currency", currency),
                                 fixed         = if (cd.has("fixed"))         cd.getDouble("fixed")         else null,
                                 estimatedCost = if (cd.has("estimated_cost")) cd.getDouble("estimated_cost") else null,
@@ -324,6 +339,7 @@ class HyperCycleClient(
             status      = a.optString("status", "unknown"),
             labels      = labels,
             containerID = a.optString("container_id", ""),
+            endpoints   = endpoints,
             costs       = costs,
         )
     }
