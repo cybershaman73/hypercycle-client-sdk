@@ -13,12 +13,12 @@ Author:   Ray Mata
 
 Expected endpoints (when available):
   POST /aim/<slot>/generate  → submit text prompt, returns result/download URL
-  GET  /aim/<slot>/download  → retrieve generated video file
+  POST /aim/<slot>/download  → retrieve generated video file by JSON id
 
 Expected flow (async — generation takes minutes):
   1. POST /generate with {"text": "A dog runs on the beach"}
   2. Receive {"result": "<download-url-or-id>"}
-  3. GET /download?id=<id> to retrieve the video when ready
+  3. POST /download with {"id": "<id>"} to retrieve the video when ready
 
 Note: The output delivery mechanism (inline vs URL vs polling) is being
 finalized. This example will be updated once the AIM is released on CBNO nodes.

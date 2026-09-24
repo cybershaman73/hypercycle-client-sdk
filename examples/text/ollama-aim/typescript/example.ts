@@ -21,16 +21,20 @@ async function waitForReady(
 ): Promise<boolean> {
   /**
    * The ollama-aim downloads its model AFTER entering "running" state (~4 min).
-   * Poll until model_ready == true before submitting inference.
+   * Priority: model_ready → ollama_healthy → field absent (assume ready).
    */
   console.log(`Waiting for model (up to ${maxWaitMs / 60000}min)...`);
   let elapsed = 0;
   while (elapsed < maxWaitMs) {
     const health = await client.health(slot);
     if (health.ok) {
-      const ready = (health.data["model_ready"] as boolean) ?? false;
+      const ready = "model_ready" in health.data
+        ? health.data["model_ready"] as boolean
+        : "ollama_healthy" in health.data
+          ? health.data["ollama_healthy"] as boolean
+          : true;
       const model = health.data["model"] ?? "";
-      console.log(`  [${Math.round(elapsed / 1000)}s] model_ready=${ready}  model=${model}`);
+      console.log(`  [${Math.round(elapsed / 1000)}s] ready=${ready}  model=${model}`);
       if (ready) return true;
     }
     await new Promise(r => setTimeout(r, pollMs));

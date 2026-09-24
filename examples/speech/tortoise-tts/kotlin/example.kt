@@ -1,5 +1,5 @@
 // examples/speech/tortoise-tts/kotlin/example.kt
-// HyperCycle SDK v0.3.0-beta — Tortoise TTS AIM (Kotlin/Android)
+// HyperCycle SDK v0.3.1-beta — Tortoise TTS AIM (Kotlin/Android)
 //
 // NOTE: tortoise-tts has no /health endpoint.
 // Warmup detection works by retrying /speak directly until the model responds.

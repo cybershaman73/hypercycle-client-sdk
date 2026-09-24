@@ -20,7 +20,7 @@ class OllamaAIMService(nodeUrl: String? = null) {
     private val client = HyperCycleClient(nodeUrl)
 
     /**
-     * Poll /health until model_ready == true.
+     * Priority: model_ready → ollama_healthy → field absent (assume ready).
      * ollama-aim downloads its LLM AFTER entering "running" state (~4 min).
      * Must be called from a coroutine.
      */
@@ -30,9 +30,13 @@ class OllamaAIMService(nodeUrl: String? = null) {
         while (elapsed < maxWaitSec) {
             val health = client.health(slot)
             if (health is HyperCycleResult.Success) {
-                val ready = health.data.optBoolean("model_ready", false)
+                val ready = when {
+                    health.data.has("model_ready") -> health.data.optBoolean("model_ready")
+                    health.data.has("ollama_healthy") -> health.data.optBoolean("ollama_healthy")
+                    else -> true
+                }
                 val model = health.data.optString("model", "")
-                println("  [${elapsed}s] model_ready=$ready  model=$model")
+                println("  [${elapsed}s] ready=$ready  model=$model")
                 if (ready) return true
             }
             delay(pollSec * 1000)

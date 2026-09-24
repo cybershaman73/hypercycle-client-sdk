@@ -84,7 +84,7 @@ def check_health(client, slot):
     if not health.ok:
         if health.status == 404:
             return "no_endpoint", None
-        return "error", health.error
+        return "error", health
 
     model_ready = health.data.get("model_ready", True)
     if model_ready:
@@ -116,10 +116,9 @@ def wait_for_health(client, slot, max_wait_sec=300, poll_interval=15):
         return "no_endpoint", None
 
     if outcome == "error":
-        # 500 on /health = Node Manager routing error, not a model state signal.
+        # A failed /health is not a model state signal.
         # Fall through immediately rather than polling a broken route.
-        status_code = getattr(client.health(slot), 'status', None)
-        print(f"  [  0s] /health → 500 (Node Manager routing error — not a model state signal)")
+        print(f"  [  0s] /health → {data.status or 'no response'} ({data.error})")
         print(f"         Falling through to active endpoint probe.")
         return "no_endpoint", None
 
@@ -228,6 +227,9 @@ def main():
     # ------------------------------------------------------------------
     text  = "You are now hearing this in my voice, courtesy of the HyperCycle network."
     voice = DEFAULT_VOICE
+    if len(text) > 100:
+        print(f"Text exceeds 100 char limit ({len(text)} chars)")
+        sys.exit(1)
     body  = {"text": text, "voice": voice}
 
     print(f"Text  : \"{text}\"")
