@@ -41,6 +41,7 @@ function failure<T>(error: string, status: number | null = null): HyperCycleResu
 // ---------------------------------------------------------------------------
 
 export interface EndpointCost {
+  endpoint:       string;   // URI key from uri_cost, e.g. "/speak"
   currency:       string;
   fixed?:         number;   // fixed cost per call (if declared)
   estimated_cost?: number;  // mid-point estimate
@@ -66,6 +67,7 @@ export interface AIMInfo {
   status:       string;        // "running" = callable; other values = not ready
   labels:       Record<string, string>;
   container_id: string;
+  endpoints:    string[];      // endpoint URIs declared in uri_cost
   costs:        EndpointCost[]; // from uri_cost block in /info
 }
 
@@ -196,7 +198,8 @@ export class HyperCycleClient {
     }
 
     const aims = infoResult.data.aims;
-    const match = aims.find(a => a.image_name === imageName);
+    const matches = aims.filter(a => a.image_name === imageName);
+    const match = matches.find(a => a.status === "running") ?? matches[0];
 
     if (!match) {
       const available = aims.map(a => a.image_name);
@@ -240,7 +243,14 @@ export class HyperCycleClient {
    * @param slot AIM slot number (from discover() or info())
    */
   async health(slot: number): Promise<HyperCycleResult<Record<string, unknown>>> {
-    return this.get(`/aim/${slot}/health`);
+    const result = await this.get<Record<string, unknown>>(`/aim/${slot}/health`);
+    if (!result.ok && result.status === 404) {
+      return failure(
+        `AIM at slot ${slot} has no /health endpoint — probe the active endpoint directly to confirm readiness.`,
+        404,
+      );
+    }
+    return result;
   }
 
   // -------------------------------------------------------------------------
@@ -309,11 +319,13 @@ export class HyperCycleClient {
   private parseAIM(a: RawAIM): AIMInfo {
     const costs: EndpointCost[] = [];
     const uriCost = a.uri_cost ?? {};
-    for (const _endpoint of Object.keys(uriCost)) {
-      for (const [_currency, costData] of Object.entries(uriCost[_endpoint] ?? {})) {
+    const endpoints = Object.keys(uriCost);
+    for (const endpoint of endpoints) {
+      for (const [_currency, costData] of Object.entries(uriCost[endpoint] ?? {})) {
         if (typeof costData === "object" && costData !== null) {
           const cd = costData as Record<string, unknown>;
           costs.push({
+            endpoint,
             currency:        (cd["currency"] as string) ?? _currency,
             fixed:           cd["fixed"] as number | undefined,
             estimated_cost:  cd["estimated_cost"] as number | undefined,
@@ -331,6 +343,7 @@ export class HyperCycleClient {
       status:       a.status,
       labels:       a.labels       ?? {},
       container_id: a.container_id ?? "",
+      endpoints,
       costs,
     };
   }

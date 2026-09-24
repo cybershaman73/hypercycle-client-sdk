@@ -48,6 +48,7 @@ public struct HyperCycleError: Error {
 // ---------------------------------------------------------------------------
 
 public struct EndpointCost {
+    public let endpoint:      String
     public let currency:      String
     public let fixed:         Double?
     public let estimatedCost: Double?
@@ -71,6 +72,7 @@ public struct AIMInfo {
     public let status:      String      // "running" = callable
     public let labels:      [String: String]
     public let containerID: String
+    public let endpoints:   [String]
     public let costs:       [EndpointCost]
 }
 
@@ -180,7 +182,8 @@ public class HyperCycleClient {
             return .failure(HyperCycleError("Failed to fetch node info"))
         }
 
-        guard let match = nodeInfo.aims.first(where: { $0.imageName == imageName }) else {
+        let matches = nodeInfo.aims.filter { $0.imageName == imageName }
+        guard let match = matches.first(where: { $0.status == "running" }) ?? matches.first else {
             let available = nodeInfo.aims.map { $0.imageName }
             return .failure(HyperCycleError(
                 "AIM '\(imageName)' not found on node. Available: \(available)"
@@ -217,7 +220,14 @@ public class HyperCycleClient {
     /// GET /aim/<slot>/health — check AIM liveness and model readiness.
     /// - Parameter slot: AIM slot number (from discover() or info())
     public func health(slot: Int) async -> HyperCycleResult<[String: Any]> {
-        return await get(path: "/aim/\(slot)/health")
+        let result = await get(path: "/aim/\(slot)/health")
+        if case .failure(let error) = result, error.statusCode == 404 {
+            return .failure(HyperCycleError(
+                "AIM at slot \(slot) has no /health endpoint — probe the active endpoint directly to confirm readiness.",
+                statusCode: 404
+            ))
+        }
+        return result
     }
 
     // -------------------------------------------------------------------------
@@ -284,12 +294,15 @@ public class HyperCycleClient {
 
     private func parseAIM(_ a: [String: Any]) -> AIMInfo {
         var costs: [EndpointCost] = []
+        var endpoints: [String] = []
         if let uriCost = a["uri_cost"] as? [String: Any] {
-            for (_, endpointCosts) in uriCost {
+            endpoints = Array(uriCost.keys)
+            for (endpoint, endpointCosts) in uriCost {
                 if let currencies = endpointCosts as? [String: Any] {
                     for (currency, costData) in currencies {
                         if let cd = costData as? [String: Any] {
                             costs.append(EndpointCost(
+                                endpoint:      endpoint,
                                 currency:      cd["currency"] as? String ?? currency,
                                 fixed:         cd["fixed"] as? Double,
                                 estimatedCost: cd["estimated_cost"] as? Double,
@@ -309,6 +322,7 @@ public class HyperCycleClient {
             status:      a["status"]       as? String ?? "unknown",
             labels:      a["labels"]       as? [String: String] ?? [:],
             containerID: a["container_id"] as? String ?? "",
+            endpoints:   endpoints,
             costs:       costs
         )
     }
