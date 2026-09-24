@@ -9,13 +9,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+
 ### Changed
+- `discover()` now prefers the first running AIM when duplicate image names are present.
 - Ollama examples now recognize `model_ready`, then `ollama_healthy`, and treat an absent readiness field as ready.
 - Tortoise TTS examples now report the actual health failure status, avoid an extra `/speak` request after timeout, and consistently enforce the 100-character text limit.
 - CogVideoX documentation now matches the example's JSON `POST /download` request.
 - README error-handling guidance now documents constructor exceptions and the boolean `ping()` return type; the nonexistent docs file was removed from the file tree.
 
 ### Fixed
+- TypeScript, Swift, and Kotlin now preserve endpoint names and endpoint lists parsed from `uri_cost`, matching Python.
+- TypeScript, Swift, and Kotlin `health()` calls now return Python's explicit no-`/health` message for HTTP 404.
 - Tortoise TTS TypeScript, Swift, and Kotlin example version labels now report `0.3.1-beta`.
 
 ---
