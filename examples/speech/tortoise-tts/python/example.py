@@ -1,6 +1,6 @@
 """
 examples/speech/tortoise-tts/python/example.py
-HyperCycle SDK v0.3.1-beta — Tortoise Text-to-Speech AIM (Python)
+HyperCycle SDK v0.4.0-beta — Tortoise Text-to-Speech AIM (Python)
 
 Use case: Text-to-speech synthesis with multiple voice avatars
 AIM image: tortoise-tts

@@ -1,6 +1,6 @@
 """
 hypercycle_client.py — HyperCycle AIM Client SDK (Python)
-Version: 0.3.1-beta
+Version: 0.4.0-beta
 
 Generic client for connecting to any public AIM on any HyperCycle node.
 Designed for frontend app developers building on top of the HyperCycle
@@ -45,7 +45,7 @@ from typing import Any, Dict, Generic, List, Optional, TypeVar
 import urllib.request
 import urllib.error
 
-SDK_VERSION = "0.3.1-beta"
+SDK_VERSION = "0.4.0-beta"
 
 T = TypeVar("T")
 

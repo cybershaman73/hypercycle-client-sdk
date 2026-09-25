@@ -1,6 +1,6 @@
 /**
  * examples/speech/tortoise-tts/typescript/example.ts
- * HyperCycle SDK v0.3.1-beta — Tortoise TTS AIM (TypeScript)
+ * HyperCycle SDK v0.4.0-beta — Tortoise TTS AIM (TypeScript)
  *
  * NOTE: tortoise-tts has no /health endpoint.
  * Warmup detection works by retrying /speak until the model responds.

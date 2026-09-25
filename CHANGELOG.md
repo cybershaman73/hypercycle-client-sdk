@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+---
+
+## [0.4.0-beta] — 2026-09-25
+
+### Added
+- Python payments (`python/hypercycle_pay.py`): `PayingClient` with nonce handling, protocol 1 and protocol 2
+  signing (protocol 2 recommended), deposit registration, delegated sessions, and advisory spend limits.
+- `python/smoke_paid_call.py`: dry-run and live paid-call smoke test; `--live` prints the AIM response.
+- `python/PAYMENTS.md`: payment guide.
+- Verified live on mainnet against Node Manager 0.5.5 (Ethereum driver, USDC): deposit registration and a
+  protocol 2 paid call to an ollama AIM.
+
 
 ### Changed
 - `discover()` now prefers the first running AIM when duplicate image names are present.
@@ -18,9 +30,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - README error-handling guidance now documents constructor exceptions and the boolean `ping()` return type; the nonexistent docs file was removed from the file tree.
 
 ### Fixed
+- A failed paid call without a new nonce no longer leaves a stale cached nonce.
+- Deposit registration sends the currency symbol, which Node Manager 0.5.5 requires.
 - TypeScript, Swift, and Kotlin now preserve endpoint names and endpoint lists parsed from `uri_cost`, matching Python.
 - TypeScript, Swift, and Kotlin `health()` calls now return Python's explicit no-`/health` message for HTTP 404.
-- Tortoise TTS TypeScript, Swift, and Kotlin example version labels now report `0.3.1-beta`.
+- Tortoise TTS TypeScript, Swift, and Kotlin example version labels now report the current SDK version.
 
 ---
 
