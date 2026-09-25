@@ -18,7 +18,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--slot", required=True, type=int)
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--body-json", required=True)
-    parser.add_argument("--protocol", choices=(1, 2), default=1, type=int)
+    parser.add_argument(
+        "--protocol",
+        choices=(1, 2),
+        default=1,
+        type=int,
+        help="signing protocol; 2 binds the signature to the request and is "
+        "recommended where the node supports it (default: 1)",
+    )
     parser.add_argument("--currency", help="accepted currency symbol from /info")
     parser.add_argument("--session-duration", default=21600, type=int)
     mode = parser.add_mutually_exclusive_group(required=True)

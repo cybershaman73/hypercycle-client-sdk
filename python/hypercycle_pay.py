@@ -50,7 +50,14 @@ class PaidResult:
 
 
 class PayingClient(HyperCycleClient):
-    """HyperCycle client that signs and submits paid AIM requests."""
+    """HyperCycle client that signs and submits paid AIM requests.
+
+    ``protocol`` selects the signing scheme. Protocol 1 signs only the nonce,
+    so over plain HTTP a captured signature could be replayed against a
+    different request. Protocol 2 signs the method, path, payment headers and
+    body hash and is the recommended choice wherever the node supports it.
+    The default stays 1 for compatibility with older nodes.
+    """
 
     def __init__(
         self,
@@ -444,6 +451,11 @@ class PayingClient(HyperCycleClient):
         parsed = self._paid_result(response)
         if parsed.next_nonce:
             self._next_nonce = parsed.next_nonce
+        elif not parsed.ok:
+            # The node did not hand back a nonce, so the cached one may be
+            # stale. Drop it so the next call fetches a fresh one instead of
+            # failing forever on the same nonce.
+            self._next_nonce = None
         return parsed
 
     def _paid_headers(

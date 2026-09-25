@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 import sys
@@ -204,6 +205,7 @@ class StubHandler(BaseHTTPRequestHandler):
     session_key = "stub-session-key"
     payment_driver = "basechain"
     accepting_currencies = ["USDC"]
+    fail_next_aim_call = False
     currencies = {
         "USDC": {
             "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -252,6 +254,9 @@ class StubHandler(BaseHTTPRequestHandler):
         if method == "POST" and parsed.path == "/aim/0/chat":
             if headers.get("cost_only"):
                 return 200, {"costs": []}, {}
+            if cls.fail_next_aim_call:
+                cls.fail_next_aim_call = False
+                return 500, {"error": "aim exploded"}, {}
             cls.aim_calls += 1
             next_nonce = "nonce-two" if cls.aim_calls == 1 else "nonce-three"
             response_headers = {
@@ -327,6 +332,7 @@ def stub_server(monkeypatch):
     StubHandler.aim_calls = 0
     StubHandler.payment_driver = "basechain"
     StubHandler.accepting_currencies = ["USDC"]
+    StubHandler.fail_next_aim_call = False
     try:
         server = ThreadingHTTPServer(("127.0.0.1", 0), StubHandler)
     except PermissionError:
@@ -339,7 +345,14 @@ def stub_server(monkeypatch):
                 {key.lower(): value for key, value in request.header_items()},
                 request.data or b"",
             )
-            assert status == 200, (request.get_method(), path, payload)
+            if status != 200:
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    status,
+                    "stub error",
+                    Message(),
+                    io.BytesIO(json.dumps(payload).encode("utf-8")),
+                )
             return StubResponse(status, payload, headers)
 
         monkeypatch.setattr(urllib.request, "urlopen", urlopen)
@@ -450,6 +463,35 @@ def test_stub_server_full_flow_and_nonce_reuse(stub_server, private_key):
     estimate_request = StubHandler.requests[-1]
     assert estimate_request["headers"]["cost_only"] == "true"
     assert not any(key.startswith("tx-") for key in estimate_request["headers"])
+
+
+def test_failed_call_without_next_nonce_clears_cached_nonce(stub_server, private_key):
+    client = PayingClient(
+        stub_server,
+        private_key=private_key,
+        driver="ethereum",
+        currency_type="HyPC",
+    )
+
+    first = client.execute_paid(0, "chat", {"prompt": "one"})
+    assert first.ok and client._next_nonce == "nonce-two"
+
+    StubHandler.fail_next_aim_call = True
+    failed = client.execute_paid(0, "chat", {"prompt": "two"})
+    assert not failed.ok and failed.status == 500
+    assert failed.next_nonce is None
+    assert client._next_nonce is None
+
+    recovered = client.execute_paid(0, "chat", {"prompt": "three"})
+    assert recovered.ok
+    assert StubHandler.nonce_calls == 2
+    nonces = [
+        r["headers"]["tx-nonce"]
+        for r in StubHandler.requests
+        if r["path"] == "/aim/0/chat" and not r["headers"].get("cost_only")
+    ]
+    assert nonces[1] == "nonce-two"
+    assert nonces[2] != "nonce-two"
 
 
 def test_configure_from_node_derives_payment_headers(stub_server, private_key):

@@ -52,10 +52,18 @@ client.register_deposit(tx_id, tx_value)
 
 ## Protocol 1 and protocol 2
 
-Protocol 1 EIP-191-signs the nonce string and is the default.
+Protocol 1 EIP-191-signs the nonce string only. The signature is not bound to
+the request, so over plain HTTP a captured signature could be replayed against
+a different call before the nonce rotates. It remains the default for
+compatibility with older nodes.
 
 Protocol 2 signs the method, URI, selected sorted payment headers, and SHA-256
-hash of the exact JSON bytes, binding the signature to the request.
+hash of the exact JSON bytes, binding the signature to the request. **Use
+protocol 2 wherever the node supports it** (`PayingClient(..., protocol=2)` or
+`--protocol 2` on the smoke CLI).
+
+If a paid call fails without returning `next_nonce`, the client discards its
+cached nonce and fetches a fresh one on the next call.
 
 The deployed AIM handler passes the full request path and query string to the
 verifier. Accordingly, this SDK signs `/aim/<slot>/<endpoint>` plus the exact
