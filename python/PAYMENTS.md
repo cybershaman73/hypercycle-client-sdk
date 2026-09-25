@@ -35,7 +35,10 @@ asks Node Manager to verify and credit an already-existing transaction ID.
 Call `configure_from_node()` before registering a deposit or executing a paid
 call. It reads the node's payment engine from `/info`, uses `tm.driver` for
 `tx-driver`, and uses the selected currency's ERC-20 contract address for
-`currency-type` (`nullpay` nodes use the currency symbol). If the node accepts
+`currency-type` on paid calls (`nullpay` nodes use the currency symbol).
+`register_deposit()` sends the currency **symbol** instead, because
+`POST /balance` on Node Manager 0.5.5 rejects the contract address
+(`Node not accepting '0x…', accepted: ['HyPC', 'USDC']`). If the node accepts
 more than one currency, pass the desired symbol explicitly. Constructor values
 for `driver` or `currency_type` remain explicit overrides.
 

@@ -271,10 +271,19 @@ class PayingClient(HyperCycleClient):
         driver: Optional[str] = None,
         origin: Optional[str] = None,
     ) -> HyperCycleResult[JsonObject]:
-        """Register an existing chain deposit with ``POST /balance``."""
+        """Register an existing chain deposit with ``POST /balance``.
+
+        ``/balance`` expects the currency *symbol* (for example ``USDC``) in
+        ``currency-type``; Node Manager 0.5.5 rejects the ERC-20 contract
+        address there even though paid calls accept it. When
+        ``configure_from_node()`` has run, the symbol it selected is used by
+        default. Pass ``currency_type`` to override.
+        """
         active_driver, active_currency_type = self._require_payment_configuration(
             driver=driver, currency_type=currency_type
         )
+        if currency_type is None and self.currency_symbol:
+            active_currency_type = self.currency_symbol
         headers = {
             "tx-id": str(tx_id),
             "tx-sender": self.sender,

@@ -146,7 +146,11 @@ def main() -> int:
     result = client.execute_paid(
         args.slot, args.endpoint, body, protocol=args.protocol
     )
-    output = {"value_used": result.value_used, "next_nonce": result.next_nonce}
+    output = {
+        "value_used": result.value_used,
+        "next_nonce": result.next_nonce,
+        "response": result.data,
+    }
     print(json.dumps(output, sort_keys=True))
     if not result.ok:
         print(result.error or "Paid call failed", file=sys.stderr)

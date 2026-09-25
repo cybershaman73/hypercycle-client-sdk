@@ -509,6 +509,36 @@ def test_configure_from_node_derives_payment_headers(stub_server, private_key):
     assert client.to_base_units(Decimal("0.000001")) == 1
 
 
+def test_register_deposit_sends_currency_symbol_after_configure(
+    stub_server, private_key
+):
+    client = PayingClient(stub_server, private_key=private_key)
+    assert client.configure_from_node().ok
+
+    deposit = client.register_deposit("0xdeposit", 1_000_000)
+    paid = client.execute_paid(0, "chat", {"prompt": "one"})
+    override = client.register_deposit(
+        "0xdeposit2", 1, currency_type="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    )
+
+    assert deposit.ok and paid.ok and override.ok
+    balance_headers = [
+        r["headers"]["currency-type"]
+        for r in StubHandler.requests
+        if r["path"] == "/balance"
+    ]
+    paid_header = next(
+        r["headers"]["currency-type"]
+        for r in StubHandler.requests
+        if r["path"] == "/aim/0/chat"
+    )
+    assert balance_headers == [
+        "USDC",
+        "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    ]
+    assert paid_header == "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+
 def test_configure_from_node_rejects_ambiguous_currency(
     stub_server, private_key
 ):
